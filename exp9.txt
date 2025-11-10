@@ -1,0 +1,131 @@
+# --- Block 1: Import & Load ---
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+df = pd.read_csv('city_hour.csv')
+
+print("Shape:", df.shape)
+print("\nColumns:", df.columns.tolist())
+df.head()
+
+# --- Block 2: Explore & Prepare ---
+
+# Ensure datetime is parsed
+df['Datetime'] = pd.to_datetime(df['Datetime'], errors='coerce')
+
+# Basic exploration
+print(df.info())
+print("\nMissing values (top 20):")
+print(df.isnull().sum().sort_values(ascending=False).head(20))
+
+# Create helper time columns
+df['date'] = df['Datetime'].dt.date
+df['month'] = df['Datetime'].dt.to_period('M').astype(str)
+df['year'] = df['Datetime'].dt.year
+
+# Available cities
+cities = sorted(df['City'].dropna().unique().tolist())
+print("\nNumber of cities:", len(cities))
+print("Sample cities:", cities[:10])
+
+# --- Block 3: Select City & Subset ---
+
+# Pick your city here (change to whatever you need, e.g., "Delhi", "Mumbai", etc.)
+target_city = "Delhi"
+
+df_city = df[df['City'] == target_city].copy()
+df_city = df_city.sort_values('Datetime')
+
+print(f"Selected city: {target_city}")
+print("Rows in selected city:", len(df_city))
+df_city.head()
+
+# --- Block 4: Identify Variables ---
+
+date_col = 'Datetime'
+aqi_col = 'AQI'  # numeric (may have NaNs)
+pollutant_cols = ['PM2.5', 'PM10', 'CO', 'NO2', 'SO2', 'O3', 'NH3', 'NO', 'NOx', 'Benzene', 'Toluene', 'Xylene']
+pollutant_cols = [c for c in pollutant_cols if c in df_city.columns]
+
+print("Using columns:")
+print(" - Date/Time:", date_col)
+print(" - AQI:", aqi_col)
+print(" - Pollutants:", pollutant_cols)
+
+# --- Block 5: AQI Trend Over Time (daily mean) ---
+
+# Resample daily to smooth hourly noise
+aqi_daily = df_city.set_index(date_col)[aqi_col].resample('D').mean()
+
+plt.figure(figsize=(10, 5))
+plt.plot(aqi_daily.index, aqi_daily.values)
+plt.title(f"AQI Trend Over Time — {target_city}")
+plt.xlabel("Date")
+plt.ylabel("AQI (daily mean)")
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.show()
+
+# --- Block 6: Pollutant Trends Over Time (separate plots) ---
+
+# Resample daily to reduce noise
+daily_pollutants = df_city.set_index(date_col)[pollutant_cols].resample('D').mean()
+
+for col in pollutant_cols:
+    plt.figure(figsize=(10, 4))
+    plt.plot(daily_pollutants.index, daily_pollutants[col])
+    plt.title(f"{col} Trend Over Time — {target_city}")
+    plt.xlabel("Date")
+    plt.ylabel(f"{col} (daily mean)")
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.show()
+
+# --- Block 7: Bar Plot — Average Monthly AQI ---
+
+aqi_monthly = df_city.set_index(date_col)[aqi_col].resample('M').mean().reset_index()
+aqi_monthly['month_str'] = aqi_monthly['Datetime'].dt.to_period('M').astype(str)
+
+plt.figure(figsize=(12, 5))
+plt.bar(aqi_monthly['month_str'], aqi_monthly[aqi_col])
+plt.title(f"Average Monthly AQI — {target_city}")
+plt.xlabel("Month")
+plt.ylabel("Average AQI")
+plt.xticks(rotation=45)
+plt.show()
+
+# --- Block 8: Box & Violin Plots ---
+
+# Prepare data
+aqi_valid = df_city[[aqi_col, 'month', 'AQI_Bucket']].dropna(subset=[aqi_col]).copy()
+
+# Boxplot: AQI by month
+# Build data list by month order
+month_order = sorted(aqi_valid['month'].dropna().unique().tolist())
+data_by_month = [aqi_valid.loc[aqi_valid['month'] == m, aqi_col].values for m in month_order]
+
+plt.figure(figsize=(12, 5))
+plt.boxplot(data_by_month, labels=month_order, showfliers=True)
+plt.title(f"AQI Distribution by Month — {target_city}")
+plt.xlabel("Month")
+plt.ylabel("AQI")
+plt.xticks(rotation=45)
+plt.show()
+
+# Violin plot: AQI by AQI_Bucket (if available)
+if 'AQI_Bucket' in aqi_valid.columns:
+    bucket_order = [b for b in ['Good','Satisfactory','Moderate','Poor','Very Poor','Severe']
+                    if b in aqi_valid['AQI_Bucket'].unique()]
+    if not bucket_order:
+        bucket_order = sorted(aqi_valid['AQI_Bucket'].dropna().unique().tolist())
+
+    data_by_bucket = [aqi_valid.loc[aqi_valid['AQI_Bucket'] == b, aqi_col].values for b in bucket_order]
+
+    plt.figure(figsize=(10, 5))
+    parts = plt.violinplot(data_by_bucket, showmeans=True, showextrema=True, showmedians=True)
+    plt.title(f"AQI Distribution by AQI Bucket — {target_city}")
+    plt.xlabel("AQI Bucket")
+    plt.ylabel("AQI")
+    plt.xticks(range(1, len(bucket_order)+1), bucket_order, rotation=0)
+    plt.show()
+

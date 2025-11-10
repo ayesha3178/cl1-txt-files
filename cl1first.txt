@@ -1,0 +1,125 @@
+# PCA on Wine data (red vs white friendly)
+# ----------------------------------------
+import io
+import urllib.request
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.impute import SimpleImputer
+
+df = pd.read_csv('Wine.csv')
+print("Shape:", df.shape)
+print("Columns:", list(df.columns))
+display(df.head())
+# ---- 2) Identify target/label column if present ----
+# Priority names; otherwise fall back to an object/categorical column
+candidate_names = ["Type", "Wine", "Class", "target", "label"]
+target_col = None
+for name in candidate_names:
+    if name in df.columns:
+        target_col = name
+        break
+
+if target_col is None:
+    # Heuristic: first non-numeric column or any column with <=3 unique values
+    for c in df.columns:
+        if (df[c].dtype == "O") or (df[c].nunique() <= 3):
+            target_col = c
+            break
+
+print("Detected target column:", target_col)
+# ---- 3) Build X and y ----
+if target_col is not None:
+    y = df[target_col].copy()
+    X = df.drop(columns=[target_col]).select_dtypes(include=[np.number]).copy()
+else:
+    y = None
+    X = df.select_dtypes(include=[np.number]).copy()
+
+if X.empty:
+    raise ValueError("No numeric feature columns found for PCA.")
+
+# ---- 4) Handle missing values & scale ----
+imputer = SimpleImputer(strategy="median")
+X_imp = imputer.fit_transform(X)
+
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X_imp)
+
+# ---- 5) Fit PCA (retain 95% of variance) ----
+pca = PCA(n_components=0.95, svd_solver="full", random_state=42)
+X_pca = pca.fit_transform(X_std)
+
+explained = pca.explained_variance_ratio_
+cum_explained = np.cumsum(explained)
+
+print(f"\nPCA chose {pca.n_components_} components to explain ≥95% variance.")
+for i, (r, c) in enumerate(zip(explained, cum_explained), start=1):
+    print(f"PC{i}: {r:.4f} | cumulative: {c:.4f}")
+
+# ---- 6) Pack results for inspection & export ----
+pcs_cols = [f"PC{i+1}" for i in range(X_pca.shape[1])]
+pca_df = pd.DataFrame(X_pca, columns=pcs_cols, index=df.index)
+
+if y is not None:
+    pca_df[target_col] = y.values
+
+display(pca_df.head())
+
+# ---- 7) Scree plot ----
+plt.figure(figsize=(7,4))
+plt.plot(range(1, len(explained)+1), explained, marker="o")
+plt.title("Scree Plot: Explained Variance by Component")
+plt.xlabel("Principal Component")
+plt.ylabel("Explained Variance Ratio")
+plt.grid(True, alpha=0.3)
+plt.show()
+
+# ---- 8) 2D scatter of first two PCs, colored by label if available ----
+plt.figure(figsize=(6,5))
+if X_pca.shape[1] >= 2:
+    if y is not None:
+        # Encode y for coloring while keeping a legend
+        y_vals = pd.Series(y)
+        classes = y_vals.astype(str).unique()
+        for cls in classes:
+            mask = (y_vals.astype(str) == str(cls))
+            plt.scatter(X_pca[mask, 0], X_pca[mask, 1], s=25, label=str(cls), alpha=0.8)
+        plt.legend(title=target_col, fontsize=9)
+    else:
+        plt.scatter(X_pca[:, 0], X_pca[:, 1], s=25, alpha=0.8)
+    plt.xlabel("PC1")
+    plt.ylabel("PC2")
+    plt.title("Wine projected on PC1 vs PC2")
+    plt.grid(True, alpha=0.3)
+    plt.show()
+else:
+    print("Only one principal component was retained; skipping 2D scatter.")
+
+# ---- 9) Feature loadings (how strongly each original variable contributes) ----
+# Loadings = eigenvectors scaled by sqrt(eigenvalues). In sklearn, components_ are eigenvectors.
+loadings = pca.components_.T  # shape: [n_features, n_components]
+load_df = pd.DataFrame(loadings, index=X.columns, columns=pcs_cols)
+
+print("\nTop contributors to PC1 (by absolute loading):")
+display(load_df["PC1"].abs().sort_values(ascending=False).head(10))
+
+# Heatmap-style visualization of loadings (matplotlib only)
+plt.figure(figsize=(min(1.1*len(pcs_cols), 12), min(0.4*len(X.columns)+2, 14)))
+plt.imshow(load_df.values, aspect='auto', interpolation='nearest')
+plt.colorbar(label="Loading")
+plt.yticks(range(len(load_df.index)), load_df.index)
+plt.xticks(range(len(load_df.columns)), load_df.columns, rotation=45, ha="right")
+plt.title("PCA Loadings (Feature ↔ Principal Components)")
+plt.tight_layout()
+plt.show()
+
+# ---- 10) Quick separation check along PC1/PC2 ----
+if y is not None and X_pca.shape[1] >= 2:
+    # Group means on PCs by class
+    grp = pca_df.groupby(target_col)[["PC1","PC2"]].mean().sort_values("PC1")
+    print("\nGroup means on (PC1, PC2):")
+    display(grp)
+    # If it's Red/White, you can visually inspect if clusters separate on PC1/PC2

@@ -1,0 +1,136 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+import os
+
+df = pd.read_csv('bgl.csv')
+
+# Display basic info
+print("Initial Data Info:\n")
+print(df.info())
+df.head()
+# --- Block 2: Clean Column Names ---
+
+df.columns = (
+    df.columns
+    .str.strip()
+    .str.lower()
+    .str.replace(r'\s+', '_', regex=True)
+    .str.replace(r'[^a-z0-9_]', '', regex=True)
+)
+
+print("Cleaned Column Names:")
+print(df.columns)
+
+# --- Block 3: Handle Missing Values ---
+
+# Function to safely get mode
+def safe_mode(series):
+    try:
+        return series.mode(dropna=True).iloc[0]
+    except:
+        return np.nan
+
+# Fill missing values
+for column in df.columns:
+    if df[column].dtype == 'object':
+        df[column].fillna(safe_mode(df[column]), inplace=True)
+    else:
+        df[column].fillna(df[column].median(), inplace=True)
+
+# Check missing values after filling
+df.isnull().sum()
+
+# --- Block 4: Convert 'total_sqft' to numeric ---
+
+def convert_sqft(x):
+    try:
+        if '-' in str(x):
+            a, b = x.split('-')
+            return (float(a) + float(b)) / 2
+        return float(x)
+    except:
+        return np.nan
+
+df['total_sqft'] = df['total_sqft'].apply(convert_sqft)
+
+# Drop rows with invalid total_sqft
+df.dropna(subset=['total_sqft'], inplace=True)
+
+print("Converted 'total_sqft' to numeric successfully!")
+df[['total_sqft', 'price']].head()
+
+# --- Block 5: Feature Engineering ---
+
+# Extract numeric BHK values from 'size' column
+def extract_bhk(x):
+    if isinstance(x, str):
+        match = re.search(r'\d+', x)
+        return int(match.group()) if match else np.nan
+    return np.nan
+
+if 'size' in df.columns:
+    df['bhk'] = df['size'].apply(extract_bhk)
+
+# Create price per sqft (optional)
+df['price_per_sqft'] = df['price'] * 100000 / df['total_sqft']
+
+df[['bhk', 'price_per_sqft']].head()
+
+# --- Block 6: Detect and Visualize Outliers (Before Handling) ---
+
+numeric_cols = ['total_sqft', 'bath', 'balcony', 'price']
+
+for col in numeric_cols:
+    if col in df.columns:
+        plt.figure(figsize=(6, 3))
+        plt.boxplot(df[col].dropna())
+        plt.title(f'Outliers in {col} (Before Handling)')
+        plt.ylabel(col)
+        plt.show()
+
+# --- Block 7: Handle Outliers Using IQR ---
+
+def remove_outliers(df, column):
+    Q1 = df[column].quantile(0.25)
+    Q3 = df[column].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    return df[(df[column] >= lower_bound) & (df[column] <= upper_bound)]
+
+for col in ['total_sqft', 'bath', 'price']:
+    df = remove_outliers(df, col)
+
+print("Outliers removed successfully!")
+df.describe()
+
+# --- Block 8: Encode Categorical Variables ---
+
+categorical_cols = df.select_dtypes(include='object').columns
+df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
+
+print("Categorical variables encoded successfully!")
+print(f"Encoded dataset shape: {df_encoded.shape}")
+
+# --- Block 9: Aggregation and Insights ---
+
+if 'area_type' in df.columns:
+    avg_price_by_area = df.groupby('area_type')['price'].mean().reset_index()
+    print("Average Price by Area Type:")
+    display(avg_price_by_area)
+
+if 'bhk' in df.columns:
+    avg_price_by_bhk = df.groupby('bhk')['price'].mean().reset_index()
+    print("\nAverage Price by BHK:")
+    display(avg_price_by_bhk)
+
+# --- Block 10: Save Cleaned Dataset ---
+
+df.to_csv("RealEstate_Cleaned.csv", index=False)
+df_encoded.to_csv("RealEstate_Cleaned_Encoded.csv", index=False)
+
+print("✅ Cleaned datasets saved as:")
+print("- RealEstate_Cleaned.csv")
+print("- RealEstate_Cleaned_Encoded.csv")

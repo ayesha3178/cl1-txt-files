@@ -1,0 +1,111 @@
+# --- Block 1: Import Libraries & Load Dataset ---
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load dataset
+
+df = pd.read_csv('retailsales.csv')
+
+print("Dataset Info:\n")
+print(df.info())
+df.head()
+
+# --- Block 2: Explore Dataset ---
+
+print("\nMissing Values:")
+print(df.isnull().sum())
+
+print("\nUnique Shopping Malls (Regions):")
+print(df['shopping_mall'].unique())
+
+# Convert invoice_date to datetime
+df['invoice_date'] = pd.to_datetime(df['invoice_date'], errors='coerce')
+
+# Create a new column for total sales (quantity * price)
+df['total_sales'] = df['quantity'] * df['price']
+
+df.describe()
+
+# --- Block 3: Identify Variables for Aggregation ---
+
+region_col = 'shopping_mall'
+sales_col = 'total_sales'
+category_col = 'category'
+
+print(f"Selected columns for aggregation: {region_col}, {sales_col}, {category_col}")
+
+# --- Block 3: Identify Variables for Aggregation ---
+
+region_col = 'shopping_mall'
+sales_col = 'total_sales'
+category_col = 'category'
+
+print(f"Selected columns for aggregation: {region_col}, {sales_col}, {category_col}")
+
+# --- Block 4: Group by Region ---
+
+sales_by_region = df.groupby(region_col)[sales_col].sum().reset_index().sort_values(by=sales_col, ascending=False)
+print("Total Sales by Region (Top 10):")
+display(sales_by_region.head(10))
+
+# --- Block 5: Visualization — Sales by Region ---
+
+# Bar Plot
+plt.figure(figsize=(10,5))
+plt.bar(sales_by_region[region_col], sales_by_region[sales_col])
+plt.title("Total Sales by Region (Shopping Mall)")
+plt.xlabel("Region (Shopping Mall)")
+plt.ylabel("Total Sales")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Pie Chart
+plt.figure(figsize=(7,7))
+plt.pie(sales_by_region[sales_col], labels=sales_by_region[region_col], autopct='%1.1f%%', startangle=140)
+plt.title("Sales Distribution by Region")
+plt.show()
+
+# --- Block 6: Identify Top Performing Regions ---
+
+top_regions = sales_by_region.head(5)
+print("Top 5 Performing Regions (by Total Sales):")
+display(top_regions)
+
+# --- Block 7: Group by Region and Product Category ---
+
+region_category_sales = (
+    df.groupby([region_col, category_col])[sales_col]
+    .sum()
+    .reset_index()
+)
+
+print("Sales by Region and Category:")
+display(region_category_sales.head(10))
+
+# --- Block 8: Visualization — Stacked Bar Plot ---
+
+# Pivot table for stacked bar
+pivot_data = region_category_sales.pivot(index=region_col, columns=category_col, values=sales_col).fillna(0)
+
+# Stacked Bar Plot
+pivot_data.plot(kind='bar', stacked=True, figsize=(12,6))
+plt.title("Total Sales by Region and Product Category")
+plt.xlabel("Region (Shopping Mall)")
+plt.ylabel("Total Sales")
+plt.legend(title="Product Category")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# --- Block 9: Visualization — Grouped Bar Plot ---
+
+pivot_data.plot(kind='bar', stacked=False, figsize=(12,6))
+plt.title("Sales Comparison by Region and Product Category (Grouped)")
+plt.xlabel("Region (Shopping Mall)")
+plt.ylabel("Total Sales")
+plt.legend(title="Product Category")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
